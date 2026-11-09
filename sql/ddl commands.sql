@@ -217,3 +217,31 @@ create table waitlist (
         check (status in ('waiting', 'promoted', 'cancelled'))
 );
 
+-- event registration table
+-- tracks users registered for each event
+
+create table if not exists event_registration (
+    registration_id int auto_increment primary key,
+    event_id int not null,
+    user_id int not null,
+    registered_at datetime not null default current_timestamp,
+    status varchar(20) not null default 'registered',
+
+    constraint uq_event_registration
+        unique (event_id, user_id),
+
+    constraint fk_registration_event
+        foreign key (event_id)
+        references event(event_id)
+        on delete cascade
+        on update cascade,
+
+    constraint fk_registration_user
+        foreign key (user_id)
+        references user(user_id)
+        on delete cascade
+        on update cascade,
+
+    constraint chk_registration_status
+        check (status in ('registered', 'cancelled'))
+);

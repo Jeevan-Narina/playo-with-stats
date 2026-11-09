@@ -1,106 +1,235 @@
-﻿import Link from "next/link";
-import pool from "@/lib/db";
-import type { RowDataPacket } from "mysql2";
+﻿
+"use client";
 
-interface Booking extends RowDataPacket {
+import { useEffect, useState } from "react";
+import Link from "next/link";
+
+interface Booking {
   booking_id: number;
   venue_name: string;
-  booking_date: Date;
+  court_name: string | null;
+  booking_date: string;
   booking_time: string;
   duration: number;
-  amount: string;
+  amount: number | string;
   status: string;
 }
 
-export default async function BookingsPage() {
-  const [bookings] = await pool.query<Booking[]>(
-    `select
-        b.booking_id,
-        v.name as venue_name,
-        b.booking_date,
-        b.booking_time,
-        b.duration,
-        b.amount,
-        b.status
-     from booking b
-     join venue v on b.venue_id = v.venue_id
-     order by b.booking_date desc, b.booking_time desc`
-  );
+export default function MyBookingsPage() {
+  const [bookings, setBookings] = useState<Booking[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadBookings() {
+      try {
+        const response = await fetch("/api/bookings", {
+          cache: "no-store",
+        });
+
+        const result = await response.json();
+
+        if (!response.ok || !result.success) {
+          throw new Error(
+            result.message || "Unable to load bookings."
+          );
+        }
+
+        if (active) {
+          setBookings(result.data);
+        }
+      } catch (err) {
+        if (active) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load bookings."
+          );
+        }
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadBookings();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  function formatDate(value: string) {
+    return new Date(value).toLocaleDateString("en-IN", {
+      timeZone: "UTC",
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 text-white">
       <header className="border-b border-slate-800 px-6 py-5">
-        <div className="mx-auto flex max-w-6xl items-center justify-between">
+        <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4">
           <h1 className="text-2xl font-bold text-emerald-400">
             Playo <span className="text-white">with Stats</span>
           </h1>
 
-          <Link href="/" className="text-sm text-slate-300 hover:text-white">
-            Back to Venues
+          <Link
+            href="/dashboard"
+            className="text-sm text-slate-300 hover:text-white"
+          >
+            Back to Dashboard
           </Link>
         </div>
       </header>
 
       <section className="mx-auto max-w-6xl px-6 py-12">
-        <h2 className="text-3xl font-bold">All Bookings</h2>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-bold">
+              My Personal Bookings
+            </h2>
 
-        <p className="mt-3 text-slate-400">
-          Live booking records retrieved from MySQL.
-        </p>
+            <p className="mt-3 text-slate-400">
+              View your court reservations, payments,
+              and booking receipts.
+            </p>
+          </div>
 
-        <div className="mt-8 overflow-x-auto rounded-xl border border-slate-800">
-          <table className="w-full min-w-[850px] text-left text-sm">
-            <thead className="bg-slate-800 text-slate-200">
-              <tr>
-                <th className="p-4">Booking ID</th>
-                <th className="p-4">Venue</th>
-                <th className="p-4">Date</th>
-                <th className="p-4">Time</th>
-                <th className="p-4">Duration</th>
-                <th className="p-4">Amount</th>
-                <th className="p-4">Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {bookings.map((booking) => (
-                <tr
-                  key={booking.booking_id}
-                  className="border-t border-slate-800 hover:bg-slate-900"
-                >
-                  <td className="p-4">{booking.booking_id}</td>
-
-                  <td className="p-4 capitalize">{booking.venue_name}</td>
-
-                  <td className="p-4">
-                    {new Date(booking.booking_date).toLocaleDateString(
-                      "en-IN",
-                      { timeZone: "UTC" }
-                    )}
-                  </td>
-
-                  <td className="p-4">{booking.booking_time}</td>
-
-                  <td className="p-4">{booking.duration} min</td>
-
-                  <td className="p-4">
-                    ₹{Number(booking.amount).toLocaleString("en-IN")}
-                  </td>
-
-                  <td className="p-4">
-                    <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-emerald-400">
-                      {booking.status}
-                    </span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Link
+            href="/bookings/new"
+            className="rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-950 hover:bg-emerald-400"
+          >
+            + Book a Court
+          </Link>
         </div>
 
-        <p className="mt-5 text-sm text-slate-400">
-          Total bookings: {bookings.length}
-        </p>
+        {loading && (
+          <p className="mt-8 text-slate-400">
+            Loading your bookings...
+          </p>
+        )}
+
+        {error && (
+          <p role="alert" className="mt-8 text-red-400">
+            {error}
+          </p>
+        )}
+
+        {!loading && !error && bookings.length === 0 && (
+          <div className="mt-8 rounded-xl border border-slate-800 bg-slate-900 p-8 text-center">
+            <h3 className="text-xl font-semibold">
+              No personal bookings yet
+            </h3>
+
+            <p className="mt-3 text-slate-400">
+              Reserve a court to see your bookings here.
+            </p>
+
+            <Link
+              href="/bookings/new"
+              className="mt-5 inline-block font-semibold text-emerald-400 hover:underline"
+            >
+              Book Your First Court
+            </Link>
+          </div>
+        )}
+
+        {!loading && !error && bookings.length > 0 && (
+          <>
+            <div className="mt-8 grid gap-5 md:grid-cols-2">
+              {bookings.map((booking) => {
+                const confirmed =
+                  booking.status === "confirmed";
+
+                const pending =
+                  booking.status === "pending";
+
+                return (
+                  <div
+                    key={booking.booking_id}
+                    className="rounded-xl border border-slate-800 bg-slate-900 p-6"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <h3 className="text-lg font-bold capitalize">
+                        {booking.venue_name}
+                      </h3>
+
+                      <span
+                        className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                          confirmed
+                            ? "bg-emerald-500/10 text-emerald-400"
+                            : pending
+                              ? "bg-amber-500/10 text-amber-400"
+                              : "bg-slate-700 text-slate-300"
+                        }`}
+                      >
+                        {booking.status}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-sm text-slate-300">
+                      <p>
+                        Booking ID: #{booking.booking_id}
+                      </p>
+
+                      <p>
+                        Court:{" "}
+                        {booking.court_name ||
+                          "Not assigned"}
+                      </p>
+
+                      <p>
+                        Date:{" "}
+                        {formatDate(booking.booking_date)}
+                      </p>
+
+                      <p>
+                        Start Time: {booking.booking_time}
+                      </p>
+
+                      <p>
+                        Duration:{" "}
+                        {Number(booking.duration) / 60} hours
+                      </p>
+                    </div>
+
+                    <p className="mt-5 text-xl font-bold text-emerald-400">
+                      ₹{Number(booking.amount).toFixed(2)}
+                    </p>
+
+                    {confirmed && (
+                      <a
+                        href={`/api/bookings/receipt?booking_id=${booking.booking_id}`}
+                        className="mt-5 block rounded-lg bg-emerald-500 px-4 py-3 text-center font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        Download PDF Receipt
+                      </a>
+                    )}
+
+                    {pending && (
+                      <Link
+                        href={`/bookings/pay?booking_id=${booking.booking_id}`}
+                        className="mt-5 block rounded-lg border border-amber-500 px-4 py-3 text-center font-semibold text-amber-400 hover:bg-amber-500/10"
+                      >
+                        Complete Payment
+                      </Link>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <p className="mt-6 text-sm text-slate-400">
+              Total bookings: {bookings.length}
+            </p>
+          </>
+        )}
       </section>
     </main>
   );

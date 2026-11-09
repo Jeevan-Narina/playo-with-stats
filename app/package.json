@@ -9,8 +9,11 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "jose": "^6.2.16",
     "mysql2": "^3.24.6",
     "next": "16.4.5",
+    "pdf-lib": "^1.17.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "redis": "^6.3.1"
