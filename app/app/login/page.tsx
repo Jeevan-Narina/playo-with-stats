@@ -2,18 +2,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 export default function LoginPage() {
-  const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    e: React.FormEvent<HTMLFormElement>
+  ) {
     e.preventDefault();
     setLoading(true);
     setMessage("");
@@ -21,23 +20,48 @@ export default function LoginPage() {
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
+        credentials: "same-origin",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+        }),
+        cache: "no-store",
       });
 
       const result = await response.json();
 
-      if (!response.ok) {
-        setMessage(result.message || "Login failed");
+      if (!response.ok || !result.success) {
+        setMessage(
+          result.message || "Login failed. Check your credentials."
+        );
         return;
       }
 
-      router.push("/");
-      router.refresh();
-    } catch {
-      setMessage("Unable to connect to the server");
+      // Verify that the browser's login session actually works.
+      const sessionResponse = await fetch("/api/auth/me", {
+        method: "GET",
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+
+      const session = await sessionResponse.json();
+
+      if (!sessionResponse.ok || !session.authenticated) {
+        setMessage(
+          "Login accepted, but the session was not saved. " +
+          "Please check the authentication cookie configuration."
+        );
+        return;
+      }
+
+      // Full navigation ensures the server reads the new session.
+      window.location.assign("/dashboard");
+    } catch (error) {
+      console.error("Login error:", error);
+      setMessage("Unable to connect to the server.");
     } finally {
       setLoading(false);
     }
@@ -58,13 +82,20 @@ export default function LoginPage() {
           Login to manage your sports activities.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+        <form
+          onSubmit={handleSubmit}
+          className="mt-8 space-y-5"
+        >
           <div>
-            <label className="mb-2 block text-sm text-slate-300">
+            <label
+              htmlFor="email"
+              className="mb-2 block text-sm text-slate-300"
+            >
               Email Address
             </label>
 
             <input
+              id="email"
               type="email"
               required
               autoComplete="email"
@@ -76,11 +107,15 @@ export default function LoginPage() {
           </div>
 
           <div>
-            <label className="mb-2 block text-sm text-slate-300">
+            <label
+              htmlFor="password"
+              className="mb-2 block text-sm text-slate-300"
+            >
               Password
             </label>
 
             <input
+              id="password"
               type="password"
               required
               autoComplete="current-password"
@@ -92,7 +127,10 @@ export default function LoginPage() {
           </div>
 
           {message && (
-            <p role="alert" className="text-sm text-red-400">
+            <p
+              role="alert"
+              className="rounded-lg border border-red-500/30 bg-red-950/30 p-3 text-sm text-red-400"
+            >
               {message}
             </p>
           )}
@@ -107,7 +145,7 @@ export default function LoginPage() {
         </form>
 
         <p className="mt-6 text-center text-sm text-slate-400">
-          Don't have an account?{" "}
+          Don&apos;t have an account?{" "}
           <Link
             href="/signup"
             className="font-semibold text-emerald-400 hover:underline"
@@ -117,7 +155,10 @@ export default function LoginPage() {
         </p>
 
         <div className="mt-6 text-center">
-          <Link href="/" className="text-sm text-slate-500 hover:text-white">
+          <Link
+            href="/"
+            className="text-sm text-slate-500 hover:text-white"
+          >
             Back to Home
           </Link>
         </div>
