@@ -21,7 +21,25 @@ interface RegisteredEvent {
   registered_at: string;
 }
 
+interface HostedVenue {
+  venue_id: number;
+  venue_name: string;
+}
+
+interface HostBooking {
+  booking_id: number;
+  venue_id: number;
+  status: string;
+}
+
+interface HostResponse {
+  success: boolean;
+  venues?: HostedVenue[];
+  bookings?: HostBooking[];
+}
+
 const MAX_SIZE = 2 * 1024 * 1024;
+
 const ALLOWED_TYPES = [
   "image/jpeg",
   "image/png",
@@ -49,12 +67,21 @@ export default function ProfilePage() {
   const [eventsLoading, setEventsLoading] = useState(true);
   const [eventsError, setEventsError] = useState("");
 
+  // Host-only state.
+  const [isHost, setIsHost] = useState(false);
+  const [hostedVenues, setHostedVenues] = useState<HostedVenue[]>([]);
+  const [hostBookings, setHostBookings] = useState<HostBooking[]>([]);
+  const [hostLoading, setHostLoading] = useState(true);
+  const [hostError, setHostError] = useState("");
+
+  // Load profile and existing picture.
   useEffect(() => {
     let active = true;
 
     async function loadProfile() {
       try {
         const response = await fetch("/api/auth/me", {
+          credentials: "same-origin",
           cache: "no-store",
         });
 
@@ -73,9 +100,10 @@ export default function ProfilePage() {
           setUser(data.user);
         }
 
-        const photoResponse = await fetch("/api/profile/photo", {
-          cache: "no-store",
-        });
+        const photoResponse = await fetch(
+          "/api/profile/photo",
+          { cache: "no-store" }
+        );
 
         if (photoResponse.ok && photoResponse.status === 200) {
           const blob = await photoResponse.blob();
@@ -103,13 +131,14 @@ export default function ProfilePage() {
       }
     }
 
-    loadProfile();
+    void loadProfile();
 
     return () => {
       active = false;
     };
   }, [router]);
 
+  // Load registered sports activities.
   useEffect(() => {
     let active = true;
 
@@ -141,7 +170,61 @@ export default function ProfilePage() {
       }
     }
 
-    loadEvents();
+    void loadEvents();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Check host permissions through the protected backend API.
+  useEffect(() => {
+    let active = true;
+
+    async function loadHostedVenues() {
+      try {
+        const response = await fetch("/api/host/bookings", {
+          credentials: "same-origin",
+          cache: "no-store",
+        });
+
+        // Ordinary users are not hosts.
+        if (response.status === 403) {
+          if (active) {
+            setIsHost(false);
+          }
+          return;
+        }
+
+        if (response.status === 401) {
+          return;
+        }
+
+        if (!response.ok) {
+          throw new Error("Unable to load hosted venues.");
+        }
+
+        const data: HostResponse = await response.json();
+
+        if (active && data.success) {
+          setIsHost(true);
+          setHostedVenues(data.venues ?? []);
+          setHostBookings(data.bookings ?? []);
+        }
+      } catch (err) {
+        console.error("Hosted venues loading error:", err);
+
+        if (active) {
+          setHostError("Unable to load your hosted venues.");
+        }
+      } finally {
+        if (active) {
+          setHostLoading(false);
+        }
+      }
+    }
+
+    void loadHostedVenues();
 
     return () => {
       active = false;
@@ -173,6 +256,7 @@ export default function ProfilePage() {
       .join("");
   }
 
+  // Existing picture-upload functionality.
   async function chooseAndUploadPhoto(file: File | undefined) {
     if (!file) return;
 
@@ -212,9 +296,10 @@ export default function ProfilePage() {
         );
       }
 
-      const photoResponse = await fetch("/api/profile/photo", {
-        cache: "no-store",
-      });
+      const photoResponse = await fetch(
+        "/api/profile/photo",
+        { cache: "no-store" }
+      );
 
       if (!photoResponse.ok || photoResponse.status !== 200) {
         throw new Error(
@@ -254,6 +339,7 @@ export default function ProfilePage() {
     }
   }
 
+  // Existing picture removal.
   async function removePhoto() {
     if (uploading || removing) return;
 
@@ -309,7 +395,10 @@ export default function ProfilePage() {
           {error || "Profile unavailable."}
         </p>
 
-        <Link href="/login" className="mt-4 block text-emerald-400">
+        <Link
+          href="/login"
+          className="mt-4 block text-emerald-400"
+        >
           Go to Login
         </Link>
       </main>
@@ -322,6 +411,7 @@ export default function ProfilePage() {
   return (
     <main className="min-h-screen bg-slate-950 px-6 py-10 text-white">
       <div className="mx-auto max-w-4xl">
+
         <Link
           href="/events"
           className="text-sm text-emerald-400 hover:underline"
@@ -333,11 +423,12 @@ export default function ProfilePage() {
           My Profile
         </h1>
 
-        {/* Profile Card */}
+        {/* PROFILE CARD */}
         <div className="mt-8 rounded-2xl border border-slate-800 bg-slate-900 p-8">
 
-          {/* Profile Header */}
+          {/* PROFILE HEADER */}
           <div className="flex flex-wrap items-center gap-6">
+
             <div className="flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full bg-emerald-500 text-3xl font-bold text-slate-950">
               {displayPhoto ? (
                 <img
@@ -360,12 +451,12 @@ export default function ProfilePage() {
               </p>
 
               <span className="mt-3 inline-block rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
-                Sports Member
+                {isHost ? "Venue Host" : "Sports Member"}
               </span>
             </div>
           </div>
 
-          {/* Profile Picture Controls */}
+          {/* PROFILE PICTURE CONTROLS */}
           <div className="mt-8 border-t border-slate-800 pt-6">
             <h3 className="text-lg font-semibold">
               Profile Picture
@@ -434,13 +525,14 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* Account Information */}
+          {/* ACCOUNT INFORMATION */}
           <div className="mt-8 border-t border-slate-800 pt-6">
             <h3 className="text-lg font-semibold">
               Account Information
             </h3>
 
             <div className="mt-5 grid gap-4 sm:grid-cols-2">
+
               <div className="rounded-lg bg-slate-800 p-4">
                 <p className="text-sm text-slate-400">
                   Full Name
@@ -460,12 +552,103 @@ export default function ProfilePage() {
                   {user.email}
                 </p>
               </div>
+
+              <div className="rounded-lg bg-slate-800 p-4">
+                <p className="text-sm text-slate-400">
+                  Account Type
+                </p>
+
+                <p className="mt-2 font-medium">
+                  {isHost ? "Venue Host" : "Sports Member"}
+                </p>
+              </div>
+
             </div>
           </div>
         </div>
 
-        {/* My Sports Activities */}
-        <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-8">
+        {/* HOST-ONLY SECTION */}
+        {isHost && (
+          <section className="mt-6 rounded-2xl border border-emerald-700 bg-slate-900 p-8">
+
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <h3 className="text-xl font-bold">
+                  My Hosted Venues
+                </h3>
+
+                <p className="mt-2 text-sm text-slate-400">
+                  View reservations and court availability
+                  at venues you own.
+                </p>
+              </div>
+
+              <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-sm font-semibold text-emerald-400">
+                {hostedVenues.length} Venues
+              </span>
+            </div>
+
+            {hostLoading ? (
+              <p className="mt-5 text-slate-400">
+                Loading your venues...
+              </p>
+            ) : hostedVenues.length === 0 ? (
+              <p className="mt-5 text-slate-400">
+                No venues have been assigned to your account yet.
+              </p>
+            ) : (
+              <div className="mt-6 grid gap-4 sm:grid-cols-2">
+                {hostedVenues.map((venue) => {
+                  const venueBookings = hostBookings.filter(
+                    (booking) =>
+                      booking.venue_id === venue.venue_id
+                  );
+
+                  const confirmed = venueBookings.filter(
+                    (booking) =>
+                      booking.status === "confirmed"
+                  ).length;
+
+                  return (
+                    <div
+                      key={venue.venue_id}
+                      className="rounded-xl border border-slate-700 bg-slate-800 p-5"
+                    >
+                      <h4 className="text-lg font-bold capitalize">
+                        {venue.venue_name}
+                      </h4>
+
+                      <p className="mt-3 text-sm text-slate-300">
+                        Total bookings: {venueBookings.length}
+                      </p>
+
+                      <p className="mt-1 text-sm text-slate-300">
+                        Confirmed: {confirmed}
+                      </p>
+
+                      <Link
+                        href={`/host?venue=${venue.venue_id}`}
+                        className="mt-5 inline-block rounded-lg bg-emerald-500 px-5 py-3 text-sm font-semibold text-slate-950 hover:bg-emerald-400"
+                      >
+                        View 24-Hour Schedule
+                      </Link>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {hostError && (
+              <p className="mt-4 text-sm text-red-400">
+                {hostError}
+              </p>
+            )}
+          </section>
+        )}
+
+        {/* EXISTING SPORTS ACTIVITIES */}
+        <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-8">
+
           <div className="flex flex-wrap items-center justify-between gap-4">
             <h3 className="text-xl font-bold">
               My Sports Activities
@@ -505,6 +688,7 @@ export default function ProfilePage() {
                   className="rounded-xl border border-slate-700 bg-slate-800 p-5"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
+
                     <span className="text-sm font-semibold capitalize text-emerald-400">
                       {event.sport_type}
                     </span>
@@ -518,6 +702,7 @@ export default function ProfilePage() {
                     >
                       {event.registration_status}
                     </span>
+
                   </div>
 
                   <h4 className="mt-3 text-lg font-bold capitalize">
@@ -547,7 +732,8 @@ export default function ProfilePage() {
           >
             Explore More Events
           </Link>
-        </div>
+        </section>
+
       </div>
     </main>
   );
