@@ -4,18 +4,40 @@ import { getSession } from "@/lib/auth";
 import pool from "@/lib/db";
 import type { RowDataPacket } from "mysql2";
 
+// ============================================================
+// PLAYO WITH STATS - PERSONAL BOOKINGS API
+// ============================================================
+// GET:
+// Retrieve bookings for the logged-in user.
+//
+// POST:
+// Create new court bookings using MySQL stored procedure.
+//
+// DATE FIX:
+// DATE_FORMAT returns booking_date as YYYY-MM-DD.
+// This prevents MySQL DATE values from shifting by one day
+// during JavaScript timezone conversion.
+// ============================================================
+
+// ============================================================
+// GET - RETRIEVE PERSONAL BOOKINGS
+// ============================================================
+
 export async function GET() {
   try {
     const session = await getSession();
 
     if (!session) {
       return NextResponse.json(
-        { success: false, message: "Please log in." },
+        {
+          success: false,
+          message: "Please log in.",
+        },
         { status: 401 }
       );
     }
 
-    // Expire overdue unpaid bookings belonging to this user.
+    // Expire unpaid bookings after 15 minutes.
     await pool.query(
       `UPDATE booking
        SET status = 'expired'
@@ -25,25 +47,41 @@ export async function GET() {
       [session.userId]
     );
 
-    // Return only this user's personal bookings.
+    // Retrieve this user's bookings.
+    // DATE_FORMAT prevents the one-day date shift.
     const [rows] = await pool.query<RowDataPacket[]>(
       `SELECT
          b.booking_id,
          v.name AS venue_name,
          vc.court_name,
-         b.booking_date,
-         b.booking_time,
+
+         DATE_FORMAT(
+           b.booking_date,
+           '%Y-%m-%d'
+         ) AS booking_date,
+
+         TIME_FORMAT(
+           b.booking_time,
+           '%H:%i:%s'
+         ) AS booking_time,
+
          b.duration,
          b.amount,
          b.status
+
        FROM booking b
+
        JOIN venue v
          ON b.venue_id = v.venue_id
+
        LEFT JOIN venue_court vc
          ON b.court_id = vc.court_id
+
        WHERE b.user_id = ?
-       ORDER BY b.booking_date DESC,
-                b.booking_time DESC`,
+
+       ORDER BY
+         b.booking_date DESC,
+         b.booking_time DESC`,
       [session.userId]
     );
 
@@ -64,13 +102,25 @@ export async function GET() {
   }
 }
 
+// ============================================================
+// POST - CREATE NEW COURT BOOKING
+// ============================================================
+// 1. Authenticate the user.
+// 2. Validate booking details.
+// 3. Call MySQL stored procedure.
+// 4. Return the booking ID for payment.
+// ============================================================
+
 export async function POST(request: NextRequest) {
   try {
     const session = await getSession();
 
     if (!session) {
       return NextResponse.json(
-        { success: false, message: "Please log in." },
+        {
+          success: false,
+          message: "Please log in.",
+        },
         { status: 401 }
       );
     }
@@ -85,6 +135,7 @@ export async function POST(request: NextRequest) {
       duration,
     } = body;
 
+    // Validate the booking inputs.
     if (
       !Number.isInteger(venue_id) ||
       venue_id <= 0 ||
@@ -113,6 +164,7 @@ export async function POST(request: NextRequest) {
     const connection = await pool.getConnection();
 
     try {
+      // Create booking through MySQL stored procedure.
       await connection.query(
         `CALL sp_create_booking(
           ?, ?, ?, ?, ?, ?, @new_booking_id
@@ -127,18 +179,23 @@ export async function POST(request: NextRequest) {
         ]
       );
 
+      // Retrieve generated booking ID.
       const [result] =
         await connection.query<RowDataPacket[]>(
           "SELECT @new_booking_id AS booking_id"
         );
 
-      const bookingId = Number(result[0]?.booking_id);
+      const bookingId = Number(
+        result[0]?.booking_id
+      );
 
       if (
         !Number.isInteger(bookingId) ||
         bookingId <= 0
       ) {
-        throw new Error("Booking ID was not returned.");
+        throw new Error(
+          "Booking ID was not returned."
+        );
       }
 
       return NextResponse.json(
@@ -155,7 +212,10 @@ export async function POST(request: NextRequest) {
       connection.release();
     }
   } catch (error: unknown) {
-    console.error("Booking creation failed:", error);
+    console.error(
+      "Booking creation failed:",
+      error
+    );
 
     const dbError = error as {
       sqlState?: string;
@@ -167,7 +227,8 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           message:
-            dbError.sqlMessage || "Booking rejected.",
+            dbError.sqlMessage ||
+            "Booking rejected.",
         },
         { status: 409 }
       );

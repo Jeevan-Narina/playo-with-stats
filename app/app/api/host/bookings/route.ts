@@ -4,6 +4,28 @@ import pool from "@/lib/db";
 import { getSession } from "@/lib/auth";
 import type { RowDataPacket } from "mysql2";
 
+// ============================================================
+// PLAYO WITH STATS - GLOBAL HOST DASHBOARD API
+// ============================================================
+// Purpose:
+// 1. Verify the logged-in account.
+// 2. Allow only authorized Host accounts.
+// 3. Retrieve ALL venues in the database.
+// 4. Retrieve ALL courts across every venue.
+// 5. Retrieve ALL user bookings across every venue.
+// 6. Include customer names and emails.
+// 7. Preserve booking dates without timezone conversion.
+// 8. Return data for the Host Dashboard timeline.
+//
+// IMPORTANT:
+// All accounts with role = "host" have global booking access.
+// Do not grant this role to untrusted users.
+// ============================================================
+
+// ============================================================
+// TYPES
+// ============================================================
+
 interface HostRow extends RowDataPacket {
   role: string;
 }
@@ -34,9 +56,16 @@ interface BookingRow extends RowDataPacket {
   customer_email: string | null;
 }
 
+// ============================================================
+// GET - GLOBAL HOST BOOKINGS
+// ============================================================
+
 export async function GET() {
   try {
-    // 1. Identify the logged-in account.
+    // ========================================================
+    // STEP 1: AUTHENTICATE THE USER
+    // ========================================================
+
     const session = await getSession();
 
     if (!session) {
@@ -49,13 +78,22 @@ export async function GET() {
       );
     }
 
-    // 2. Verify that this account is a host.
+    // ========================================================
+    // STEP 2: VERIFY HOST ROLE
+    // ========================================================
+    // Ordinary users must not access all customer bookings.
+
     const [users] = await pool.query<HostRow[]>(
-      "SELECT role FROM `user` WHERE user_id = ?",
+      `SELECT role
+       FROM \`user\`
+       WHERE user_id = ?`,
       [session.userId]
     );
 
-    if (users.length === 0 || users[0].role !== "host") {
+    if (
+      users.length === 0 ||
+      users[0].role !== "host"
+    ) {
       return NextResponse.json(
         {
           success: false,
@@ -65,18 +103,25 @@ export async function GET() {
       );
     }
 
-    // 3. Retrieve only venues owned by this host.
+    // ========================================================
+    // STEP 3: RETRIEVE ALL VENUES
+    // ========================================================
+    // No host_user_id filter.
+    // Hosts can view every venue in the system.
+
     const [venues] = await pool.query<VenueRow[]>(
       `SELECT
          venue_id,
          name AS venue_name
        FROM venue
-       WHERE host_user_id = ?
-       ORDER BY name`,
-      [session.userId]
+       ORDER BY name, venue_id`
     );
 
-    // 4. Retrieve courts belonging to those venues.
+    // ========================================================
+    // STEP 4: RETRIEVE ALL COURTS
+    // ========================================================
+    // Includes courts belonging to every venue.
+
     const [courts] = await pool.query<CourtRow[]>(
       `SELECT
          vc.court_id,
@@ -85,44 +130,77 @@ export async function GET() {
        FROM venue_court vc
        INNER JOIN venue v
          ON vc.venue_id = v.venue_id
-       WHERE v.host_user_id = ?
-       ORDER BY vc.venue_id, vc.court_id`,
-      [session.userId]
-    );
-
-    // 5. Retrieve bookings for this host's venues.
-    const [bookings] = await pool.query<BookingRow[]>(
-      `SELECT
-         b.booking_id,
-         DATE_FORMAT(
-           b.booking_date, '%Y-%m-%d'
-         ) AS booking_date,
-         b.booking_time,
-         b.duration,
-         b.amount,
-         b.status,
-         b.venue_id,
-         b.court_id,
-         v.name AS venue_name,
-         vc.court_name,
-         u.name AS customer_name,
-         u.email AS customer_email
-       FROM booking b
-       INNER JOIN venue v
-         ON b.venue_id = v.venue_id
-       LEFT JOIN venue_court vc
-         ON b.court_id = vc.court_id
-       LEFT JOIN \`user\` u
-         ON b.user_id = u.user_id
-       WHERE v.host_user_id = ?
        ORDER BY
-         b.booking_date DESC,
-         b.booking_time DESC,
-         b.booking_id DESC`,
-      [session.userId]
+         v.name,
+         vc.court_id`
     );
 
-    // 6. Return all data needed by both pages.
+    // ========================================================
+    // STEP 5: RETRIEVE ALL USER BOOKINGS
+    // ========================================================
+    // Includes:
+    // - All venues
+    // - All courts
+    // - All customers
+    // - Confirmed bookings
+    // - Pending bookings
+    // - Expired bookings
+    // - Cancelled bookings
+    //
+    // DATE_FORMAT prevents JavaScript timezone shifts.
+    // ========================================================
+
+    const [bookings] =
+      await pool.query<BookingRow[]>(
+        `SELECT
+           b.booking_id,
+
+           DATE_FORMAT(
+             b.booking_date,
+             '%Y-%m-%d'
+           ) AS booking_date,
+
+           TIME_FORMAT(
+             b.booking_time,
+             '%H:%i:%s'
+           ) AS booking_time,
+
+           b.duration,
+           b.amount,
+           b.status,
+           b.venue_id,
+           b.court_id,
+
+           v.name AS venue_name,
+           vc.court_name,
+
+           u.name AS customer_name,
+           u.email AS customer_email
+
+         FROM booking b
+
+         INNER JOIN venue v
+           ON b.venue_id = v.venue_id
+
+         LEFT JOIN venue_court vc
+           ON b.court_id = vc.court_id
+
+         LEFT JOIN \`user\` u
+           ON b.user_id = u.user_id
+
+         ORDER BY
+           b.booking_date DESC,
+           b.booking_time DESC,
+           b.booking_id DESC`
+      );
+
+    // ========================================================
+    // STEP 6: RETURN GLOBAL DASHBOARD DATA
+    // ========================================================
+    // Response structure is unchanged, so the existing
+    // Host Dashboard frontend can use this API.
+    // ========================================================
+
     return NextResponse.json({
       success: true,
       venues,
@@ -130,12 +208,20 @@ export async function GET() {
       bookings,
     });
   } catch (error) {
-    console.error("Host bookings API error:", error);
+    // ========================================================
+    // ERROR HANDLING
+    // ========================================================
+
+    console.error(
+      "Global Host bookings API error:",
+      error
+    );
 
     return NextResponse.json(
       {
         success: false,
-        message: "Unable to load host bookings.",
+        message:
+          "Unable to load host bookings.",
       },
       { status: 500 }
     );
