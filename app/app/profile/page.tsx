@@ -1,6 +1,6 @@
 
 "use client";
-
+import MySportsStatistics from "@/components/MySportsStatistics";
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -645,7 +645,8 @@ export default function ProfilePage() {
             )}
           </section>
         )}
-
+	{/* SPORTS STATISTICS FOR ALL USERS */}
+<MySportsStatistics />
         {/* EXISTING SPORTS ACTIVITIES */}
         <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-900 p-8">
 
